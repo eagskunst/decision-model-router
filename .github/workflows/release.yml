@@ -1,4 +1,5 @@
 # Publishing a release vX.Y.Z writes X.Y.Z into plugin.json on main and moves the tag onto that commit.
+# main is protected, so the push uses RELEASE_TOKEN: a PAT (or GitHub App token) whose owner may bypass the ruleset.
 name: Release
 
 on:
@@ -6,7 +7,7 @@ on:
     types: [published]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   bump-version:
@@ -17,6 +18,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Write release version into plugin.json
         env:
