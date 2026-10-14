@@ -37,7 +37,8 @@ export const register: Register = (on, options) => {
     await update($, isRouted, () => true)
 
     try {
-      // $.http.fetch takes no timeout, so a laya-serve that isn't running would hold the prompt for the host's 30 s.
+      // $.http.fetch takes no timeout or signal, so a laya-serve that isn't running would hold the prompt for the
+      // host's 30 s. Race it instead; a request that loses keeps running in the background until the host gives up.
       const request = $.http.fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
@@ -47,10 +48,11 @@ export const register: Register = (on, options) => {
           questions: { route: routeQuestion(tiers) },
         }),
       })
-      const timeout = $.clock.sleep(LAYA_TIMEOUT_MS, { signal: next.signal }).then(() => {
+      const timer = new AbortController()
+      const timeout = $.clock.sleep(LAYA_TIMEOUT_MS, { signal: AbortSignal.any([next.signal, timer.signal]) }).then(() => {
         throw new Error('timeout')
       })
-      const response = await Promise.race([request, timeout])
+      const response = await Promise.race([request, timeout]).finally(() => timer.abort())
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }

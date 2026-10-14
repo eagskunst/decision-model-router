@@ -6,6 +6,7 @@ import type { On } from 'claude-code'
 function world(on: On, laya: { status: number; choice?: string; confidence?: number; hang?: boolean }) {
   const sent: { model: string; effort?: unknown }[] = []
   const calls: string[] = []
+  const statuses: (string | undefined)[] = []
   let sessionModel = 'claude-opus-5-5'
 
   on('http.fetch', ($, e) => {
@@ -18,14 +19,17 @@ function world(on: On, laya: { status: number; choice?: string; confidence?: num
   // The timeout only fires against a laya-serve that hangs.
   on('clock.sleep', () => (laya.hang ? { value: undefined } : new Promise(() => {})))
   on('session.model', () => ({ value: sessionModel }))
-  on('ui.status', () => ({ value: undefined }))
+  on('ui.status', ($, e) => {
+    statuses.push(e.text)
+    return { value: undefined }
+  })
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('turn.step', async function* ($, e) {
     sent.push({ model: e.model, effort: e.effort })
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
   })
 
-  return { sent, calls, setModel: (m: string) => (sessionModel = m) }
+  return { sent, calls, statuses, setModel: (m: string) => (sessionModel = m) }
 }
 
 function submit($: Engine, text: string) {
@@ -127,6 +131,7 @@ test('gives up on a laya-serve that does not answer', async ($, on) => {
   await step($)
 
   expect(w.sent).toEqual([{ model: 'claude-opus-5-5', effort: 'high' }])
+  expect(w.statuses).toEqual(['laya: offline, using /model'])
 })
 
 test('a manual /model switch turns routing off', async ($, on) => {
