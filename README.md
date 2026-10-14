@@ -12,7 +12,7 @@ A Claude Code mod that picks the model for a session from its first prompt. [Lay
 ## How it behaves
 
 - **First prompt only.** Switching models mid-session drops the prompt cache, so the whole conversation is re-read at full price. The mod routes once and stays on that model. Prompts under three words, like "hi", are skipped and the next prompt is routed instead.
-- **Skill calls are read by what they do.** A first prompt like `/implement-issue 12345` is routed once the skill expands, from the typed text plus the first 2000 characters of the skill.
+- **Skill calls are read by what they do.** A first prompt like `/implement-issue 12345` is routed once the skill expands, from the typed text plus the first 2000 characters of the skill. Where the `skill.prompt` hook isn't available (e.g. some team or organization accounts), it's routed from the typed text alone, or from the next prompt if that's under three words.
 - **Main thread only.** Subagents keep the model their definition names.
 - **Falls back to `/model`.** When Laya's confidence is below 0.475 (0.375 with Fable, since four options spread it thinner), or `laya-serve` is unreachable, requests go out unchanged.
 - **`/model` wins.** Change the model by hand after routing and the mod stops overriding for the rest of the session. `/effort` alone doesn't: the mod can't read the session's effort, so it keeps sending the routed one.

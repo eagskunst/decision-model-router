@@ -14,7 +14,7 @@ const SKILL_TEXT_CAP = 2000
 type Config = { url: string; apiKey: string; tiers: Record<string, (typeof TIERS)[string]>; minConfidence: number }
 type Answer = { choice?: unknown; confidence?: unknown; answer_confidence?: unknown }
 
-async function classify($: Parameters<Hook<'prompt.submit'>>[0], text: string, signal: AbortSignal, cfg: Config) {
+async function classify($: Parameters<Hook<'prompt.submit'>>[0] | Parameters<Hook<'turn.step'>>[0], text: string, signal: AbortSignal, cfg: Config) {
   await update($, isRouted, () => true)
 
   try {
@@ -92,19 +92,27 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e)) // routing is best effort: never hold a prompt back
 
   // ponytail: skill text is capped, since a SKILL.md is long and Laya's answer only needs its gist.
-  on('skill.prompt', async ($, e, next) => {
-    const typed = await read($, pending)
-    if (typed !== null && !(await read($, isRouted))) {
-      await update($, pending, () => null)
-      await classify($, `${typed}\n\n${e.text.slice(0, SKILL_TEXT_CAP)}`, next.signal, cfg)
-    }
-    return next(e)
-  }).catch(($, e, next) => next(e))
+  // Some accounts (e.g. team/organization) don't offer skill.prompt; turn.step then routes on the typed command.
+  try {
+    on('skill.prompt', async ($, e, next) => {
+      const typed = await read($, pending)
+      if (typed !== null && !(await read($, isRouted))) {
+        await update($, pending, () => null)
+        await classify($, `${typed}\n\n${e.text.slice(0, SKILL_TEXT_CAP)}`, next.signal, cfg)
+      }
+      return next(e)
+    }).catch(($, e, next) => next(e))
+  } catch {}
 
   on('turn.step', async function* ($, e, next) {
-    // No skill.prompt fired for the pending command, so there is nothing to route on.
-    if (e.agentId === undefined && (await read($, pending)) !== null) {
+    // No skill.prompt fired for the pending command (unavailable here), so route on what was typed.
+    const typed = e.agentId === undefined ? await read($, pending) : null
+    if (typed !== null) {
       await update($, pending, () => null)
+      // Same rule as a plain prompt: a bare "/commit" says too little, so the next prompt routes instead.
+      if (typed.split(/\s+/).length >= 3) {
+        await classify($, typed, next.signal, cfg)
+      }
     }
     const chosen = e.agentId === undefined ? await read($, route) : null
     if (chosen === null) {

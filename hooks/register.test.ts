@@ -174,3 +174,27 @@ test('routes a skill call from its expanded text, not the typed command', async 
   expect(JSON.parse(w.calls[0] ?? '').state).toBe('/implement-issue 12345\n\nImplement the issue.')
   expect(w.sent).toEqual([{ model: 'claude-opus-5-5', effort: 'high' }])
 })
+
+test('routes a skill call from the typed command when skill.prompt never fires', async ($, on) => {
+  const w = world(on, { status: 200, choice: 'hard', confidence: 0.9 })
+  on('command.list', () => ({ value: [{ name: 'implement-issue', description: '', source: 'user' }] }))
+
+  await submit($, '/implement-issue fix the flaky login test')
+  await step($)
+
+  expect(JSON.parse(w.calls[0] ?? '').state).toBe('/implement-issue fix the flaky login test')
+  expect(w.sent).toEqual([{ model: 'claude-opus-5-5', effort: 'high' }])
+})
+
+test('waits for the next prompt after a bare skill call without skill.prompt', async ($, on) => {
+  const w = world(on, { status: 200, choice: 'trivial', confidence: 0.9 })
+  on('command.list', () => ({ value: [{ name: 'commit', description: '', source: 'plugin' }] }))
+
+  await submit($, '/commit')
+  await step($)
+  await submit($, 'Translate hello into French.')
+  await step($)
+
+  expect(w.calls.length).toBe(1)
+  expect(w.sent.map(s => s.model)).toEqual(['claude-opus-5-5', 'claude-haiku-5-5'])
+})
