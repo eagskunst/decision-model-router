@@ -81,9 +81,11 @@ export const register: Register = (on, options) => {
       await update($, pending, () => e.text.trim())
       return next(e)
     }
-    // Laya reads "hi" as a confident trivial task, which would lock the session to Haiku.
+    // Laya reads "hi" as a confident trivial task, which would lock the session to Haiku. Routing a later prompt
+    // instead would switch models mid-conversation and drop the prompt cache, so stay on /model.
     if (e.text.trim().split(/\s+/).length < 3) {
-      $.ui.status('laya: waiting for a longer prompt')
+      await update($, isRouted, () => true)
+      $.ui.status('laya: unsure, using /model')
       return next(e)
     }
     await classify($, e.text, next.signal, cfg)
@@ -109,9 +111,12 @@ export const register: Register = (on, options) => {
     const typed = e.agentId === undefined ? await read($, pending) : null
     if (typed !== null) {
       await update($, pending, () => null)
-      // Same rule as a plain prompt: a bare "/commit" says too little, so the next prompt routes instead.
+      // Same rule as a plain prompt: a bare "/commit" says too little, so stay on /model.
       if (typed.split(/\s+/).length >= 3) {
         await classify($, typed, next.signal, cfg)
+      } else {
+        await update($, isRouted, () => true)
+        $.ui.status('laya: unsure, using /model')
       }
     }
     const chosen = e.agentId === undefined ? await read($, route) : null

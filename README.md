@@ -11,12 +11,12 @@ A Claude Code mod that picks the model for a session from its first prompt. [Lay
 
 ## How it behaves
 
-- **First prompt only.** Switching models mid-session drops the prompt cache, so the whole conversation is re-read at full price. The mod routes once and stays on that model. Prompts under three words, like "hi", are skipped and the next prompt is routed instead.
-- **Skill calls are read by what they do.** A first prompt like `/implement-issue 12345` is routed once the skill expands, from the typed text plus the first 2000 characters of the skill. Where the `skill.prompt` hook isn't available (e.g. some team or organization accounts), it's routed from the typed text alone. If that text is under three words, like a bare `/commit`, the next prompt of three words or more is routed instead.
+- **First prompt only.** Switching models mid-session drops the prompt cache, so the whole conversation is re-read at full price. The mod routes once and stays on that model. A first prompt under three words, like "hi", says too little to route, so the session stays on `/model`.
+- **Skill calls are read by what they do.** A first prompt like `/implement-issue 12345` is routed once the skill expands, from the typed text plus the first 2000 characters of the skill. Where the `skill.prompt` hook isn't available (e.g. some team or organization accounts), it's routed from the typed text alone. If that text is under three words, like a bare `/commit`, the session stays on `/model`.
 - **Main thread only.** Subagents keep the model their definition names.
 - **Falls back to `/model`.** When Laya's confidence is below 0.475 (0.375 with Fable, since four options spread it thinner), or `laya-serve` is unreachable, requests go out unchanged.
 - **`/model` wins.** Change the model by hand after routing and the mod stops overriding for the rest of the session. `/effort` alone doesn't: the mod can't read the session's effort, so it keeps sending the routed one.
-- **The status line shows what happened**: `laya → opus 0.87`, `laya: unsure (0.39), using /model`, `laya: offline, using /model`. `/model` keeps showing the session's own model, because a mod rewrites each request and can't set the session's model.
+- **The status line shows what happened**: `laya → opus 0.87`, `laya: unsure (0.39), using /model` (or `laya: unsure, using /model` for a prompt too short to send), `laya: offline, using /model`. `/model` keeps showing the session's own model, because a mod rewrites each request and can't set the session's model.
 
 ## Install
 

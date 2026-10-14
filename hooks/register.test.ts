@@ -102,17 +102,17 @@ test('keeps /model when laya is unsure', async ($, on) => {
   expect(w.sent).toEqual([{ model: 'claude-opus-5-5', effort: 'high' }])
 })
 
-test('waits for a prompt of 3 words or more', async ($, on) => {
-  const w = world(on, { status: 200, choice: 'hard', confidence: 0.9 })
+test('keeps /model for the session when the first prompt is under 3 words', async ($, on) => {
+  const w = world(on, { status: 200, choice: 'trivial', confidence: 0.9 })
 
   await submit($, 'hi there')
   await step($)
-  await submit($, 'Why does this deadlock only under load?')
+  await submit($, 'Translate hello into French.')
   await step($)
 
-  expect(w.calls.length).toBe(1)
+  expect(w.calls.length).toBe(0)
   expect(w.sent.map(s => s.model)).toEqual(['claude-opus-5-5', 'claude-opus-5-5'])
-  expect(JSON.parse(w.calls[0] ?? '').state).toBe('Why does this deadlock only under load?')
+  expect(w.statuses).toEqual(['laya: unsure, using /model'])
 })
 
 test('keeps /model when laya-serve is down', async ($, on) => {
@@ -186,7 +186,7 @@ test('routes a skill call from the typed command when skill.prompt never fires',
   expect(w.sent).toEqual([{ model: 'claude-opus-5-5', effort: 'high' }])
 })
 
-test('waits for the next prompt after a bare skill call without skill.prompt', async ($, on) => {
+test('keeps /model for the session after a bare skill call without skill.prompt', async ($, on) => {
   const w = world(on, { status: 200, choice: 'trivial', confidence: 0.9 })
   on('command.list', () => ({ value: [{ name: 'commit', description: '', source: 'plugin' }] }))
 
@@ -195,6 +195,7 @@ test('waits for the next prompt after a bare skill call without skill.prompt', a
   await submit($, 'Translate hello into French.')
   await step($)
 
-  expect(w.calls.length).toBe(1)
-  expect(w.sent.map(s => s.model)).toEqual(['claude-opus-5-5', 'claude-haiku-5-5'])
+  expect(w.calls.length).toBe(0)
+  expect(w.sent.map(s => s.model)).toEqual(['claude-opus-5-5', 'claude-opus-5-5'])
+  expect(w.statuses).toEqual(['laya: unsure, using /model'])
 })
