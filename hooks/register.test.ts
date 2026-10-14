@@ -3,15 +3,20 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 // Stands in for laya-serve, the session's /model and the model request beneath the plugin.
-function world(on: On, laya: { status: number; choice?: string; confidence?: number }) {
+function world(on: On, laya: { status: number; choice?: string; confidence?: number; hang?: boolean }) {
   const sent: { model: string; effort?: unknown }[] = []
   const calls: string[] = []
   let sessionModel = 'claude-opus-5-5'
 
   on('http.fetch', ($, e) => {
     calls.push(e.init?.body ?? '')
+    if (laya.hang) {
+      return new Promise(() => {})
+    }
     return { value: { status: laya.status, ok: laya.status < 300, headers: {}, text: JSON.stringify({ answers: { route: { choice: laya.choice, answer_confidence: laya.confidence } } }) } }
   })
+  // The timeout only fires against a laya-serve that hangs.
+  on('clock.sleep', () => (laya.hang ? { value: undefined } : new Promise(() => {})))
   on('session.model', () => ({ value: sessionModel }))
   on('ui.status', () => ({ value: undefined }))
   on('prompt.submit', ($, e) => ({ text: e.text }))
@@ -108,6 +113,15 @@ test('waits for a prompt of 3 words or more', async ($, on) => {
 
 test('keeps /model when laya-serve is down', async ($, on) => {
   const w = world(on, { status: 503 })
+
+  await submit($, 'Translate hello into French.')
+  await step($)
+
+  expect(w.sent).toEqual([{ model: 'claude-opus-5-5', effort: 'high' }])
+})
+
+test('gives up on a laya-serve that does not answer', async ($, on) => {
+  const w = world(on, { status: 200, choice: 'trivial', confidence: 0.9, hang: true })
 
   await submit($, 'Translate hello into French.')
   await step($)

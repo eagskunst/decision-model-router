@@ -7,6 +7,8 @@ import { MIN_CONFIDENCE, TIERS, routeQuestion } from './tiers'
 const isRouted = atom({ plugin: 'laya-router', key: 'isRouted' } as const, false)
 const route = atom({ plugin: 'laya-router', key: 'route' } as const, null)
 
+const LAYA_TIMEOUT_MS = 5000
+
 type Answer = { choice?: unknown; confidence?: unknown; answer_confidence?: unknown }
 
 export const register: Register = (on, options) => {
@@ -35,7 +37,8 @@ export const register: Register = (on, options) => {
     await update($, isRouted, () => true)
 
     try {
-      const response = await $.http.fetch(url, {
+      // $.http.fetch takes no timeout, so a laya-serve that isn't running would hold the prompt for the host's 30 s.
+      const request = $.http.fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
         body: JSON.stringify({
@@ -44,6 +47,10 @@ export const register: Register = (on, options) => {
           questions: { route: routeQuestion(tiers) },
         }),
       })
+      const timeout = $.clock.sleep(LAYA_TIMEOUT_MS, { signal: next.signal }).then(() => {
+        throw new Error('timeout')
+      })
+      const response = await Promise.race([request, timeout])
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }
