@@ -8,7 +8,7 @@ const isRouted = atom({ plugin: 'laya-router', key: 'isRouted' } as const, false
 const pending = atom({ plugin: 'laya-router', key: 'pending' } as const, null)
 const route = atom({ plugin: 'laya-router', key: 'route' } as const, null)
 
-const LAYA_TIMEOUT_MS = 5000
+const LAYA_TIMEOUT_MS = 7500
 const SKILL_TEXT_CAP = 2000
 
 type Config = { url: string; apiKey: string; tiers: Record<string, (typeof TIERS)[string]>; minConfidence: number }
