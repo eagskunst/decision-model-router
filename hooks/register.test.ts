@@ -160,3 +160,17 @@ test('sends the configured URL and API key', { options: { layaUrl: 'http://laya:
 
   expect(seen).toEqual({ url: 'http://laya:9000/v1/systemone', auth: 'Bearer s3cret' })
 })
+
+test('routes a skill call from its expanded text, not the typed command', async ($, on) => {
+  const w = world(on, { status: 200, choice: 'hard', confidence: 0.9 })
+  on('command.list', () => ({ value: [{ name: 'implement-issue', description: '', source: 'user' }] }))
+  on('skill.prompt', ($, e) => ({ text: e.text }))
+
+  await submit($, '/implement-issue 12345')
+  expect(w.calls.length).toBe(0)
+  await $.skill.prompt({ skill: 'implement-issue', text: 'Implement the issue.' })
+  await step($)
+
+  expect(JSON.parse(w.calls[0] ?? '').state).toBe('/implement-issue 12345\n\nImplement the issue.')
+  expect(w.sent).toEqual([{ model: 'claude-opus-5-5', effort: 'high' }])
+})
