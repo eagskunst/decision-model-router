@@ -11,6 +11,6 @@ export type Route = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'laya-router': { isRouted: boolean; route: Route | null }
+    'laya-router': { isRouted: boolean; pending: string | null; route: Route | null }
   }
 }

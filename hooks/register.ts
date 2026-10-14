@@ -1,15 +1,59 @@
 import { atom, read, update } from 'claude-code'
-import type { Register } from 'claude-code'
+import type { Hook, Register } from 'claude-code'
 
 import type { Effort, Route } from '../types'
 import { MIN_CONFIDENCE, TIERS, routeQuestion } from './tiers'
 
 const isRouted = atom({ plugin: 'laya-router', key: 'isRouted' } as const, false)
+const pending = atom({ plugin: 'laya-router', key: 'pending' } as const, null)
 const route = atom({ plugin: 'laya-router', key: 'route' } as const, null)
 
 const LAYA_TIMEOUT_MS = 5000
+const SKILL_TEXT_CAP = 2000
 
+type Config = { url: string; apiKey: string; tiers: Record<string, (typeof TIERS)[string]>; minConfidence: number }
 type Answer = { choice?: unknown; confidence?: unknown; answer_confidence?: unknown }
+
+async function classify($: Parameters<Hook<'prompt.submit'>>[0], text: string, signal: AbortSignal, cfg: Config) {
+  await update($, isRouted, () => true)
+
+  try {
+    // $.http.fetch takes no timeout or signal, so a laya-serve that isn't running would hold the prompt for the
+    // host's 30 s. Race it instead; a request that loses keeps running in the background until the host gives up.
+    const request = $.http.fetch(cfg.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}) },
+      body: JSON.stringify({
+        state: text,
+        model: 'jev-latest',
+        questions: { route: routeQuestion(cfg.tiers) },
+      }),
+    })
+    const timer = new AbortController()
+    const timeout = $.clock.sleep(LAYA_TIMEOUT_MS, { signal: AbortSignal.any([signal, timer.signal]) }).then(() => {
+      throw new Error('timeout')
+    })
+    const response = await Promise.race([request, timeout]).finally(() => timer.abort())
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const answer: Answer = JSON.parse(response.text)?.answers?.route ?? {}
+    const [name, tier] = Object.entries(cfg.tiers).find(([, t]) => t.label === answer.choice) ?? []
+    const confidence = Number(answer.answer_confidence ?? answer.confidence ?? 0)
+
+    if (name === undefined || tier === undefined || confidence < cfg.minConfidence) {
+      $.ui.status(`laya: unsure (${confidence.toFixed(2)}), using /model`)
+    } else {
+      const chosen: Route = { tier: name, model: tier.model, effort: tier.effort, confidence, sessionModel: await $.session.model() }
+      await update($, route, () => chosen)
+      $.ui.status(`laya → ${chosen.tier} ${confidence.toFixed(2)}`)
+    }
+  } catch {
+    $.ui.status('laya: offline, using /model')
+}
+
+}
 
 export const register: Register = (on, options) => {
   const url = `${String(options.layaUrl ?? 'http://localhost:8000').replace(/\/+$/, '')}/v1/systemone`
@@ -24,9 +68,17 @@ export const register: Register = (on, options) => {
   )
   const minConfidence = enableFable ? MIN_CONFIDENCE.withFable : MIN_CONFIDENCE.withoutFable
 
+  const cfg = { url, apiKey, tiers, minConfidence }
+
   on('prompt.submit', async ($, e, next) => {
     // ponytail: first prompt only, since every switch re-reads the whole conversation uncached.
     if (await read($, isRouted)) {
+      return next(e)
+    }
+    // A skill call types as "/name args"; the skill's text only exists at skill.prompt, so classify it there.
+    const name = /^\/(\S+)/.exec(e.text.trim())?.[1]
+    if (name !== undefined && (await $.command.list()).some((c) => c.name === name && (c.source === 'user' || c.source === 'plugin'))) {
+      await update($, pending, () => e.text.trim())
       return next(e)
     }
     // Laya reads "hi" as a confident trivial task, which would lock the session to Haiku.
@@ -34,48 +86,26 @@ export const register: Register = (on, options) => {
       $.ui.status('laya: waiting for a longer prompt')
       return next(e)
     }
-    await update($, isRouted, () => true)
-
-    try {
-      // $.http.fetch takes no timeout or signal, so a laya-serve that isn't running would hold the prompt for the
-      // host's 30 s. Race it instead; a request that loses keeps running in the background until the host gives up.
-      const request = $.http.fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
-        body: JSON.stringify({
-          state: e.text,
-          model: 'jev-latest',
-          questions: { route: routeQuestion(tiers) },
-        }),
-      })
-      const timer = new AbortController()
-      const timeout = $.clock.sleep(LAYA_TIMEOUT_MS, { signal: AbortSignal.any([next.signal, timer.signal]) }).then(() => {
-        throw new Error('timeout')
-      })
-      const response = await Promise.race([request, timeout]).finally(() => timer.abort())
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const answer: Answer = JSON.parse(response.text)?.answers?.route ?? {}
-      const [name, tier] = Object.entries(tiers).find(([, t]) => t.label === answer.choice) ?? []
-      const confidence = Number(answer.answer_confidence ?? answer.confidence ?? 0)
-
-      if (name === undefined || tier === undefined || confidence < minConfidence) {
-        $.ui.status(`laya: unsure (${confidence.toFixed(2)}), using /model`)
-      } else {
-        const chosen: Route = { tier: name, model: tier.model, effort: tier.effort, confidence, sessionModel: await $.session.model() }
-        await update($, route, () => chosen)
-        $.ui.status(`laya → ${chosen.tier} ${confidence.toFixed(2)}`)
-      }
-    } catch {
-      $.ui.status('laya: offline, using /model')
-    }
+    await classify($, e.text, next.signal, cfg)
 
     return next(e)
   }).catch(($, e, next) => next(e)) // routing is best effort: never hold a prompt back
 
+  // ponytail: skill text is capped, since a SKILL.md is long and Laya's answer only needs its gist.
+  on('skill.prompt', async ($, e, next) => {
+    const typed = await read($, pending)
+    if (typed !== null && !(await read($, isRouted))) {
+      await update($, pending, () => null)
+      await classify($, `${typed}\n\n${e.text.slice(0, SKILL_TEXT_CAP)}`, next.signal, cfg)
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('turn.step', async function* ($, e, next) {
+    // No skill.prompt fired for the pending command, so there is nothing to route on.
+    if (e.agentId === undefined && (await read($, pending)) !== null) {
+      await update($, pending, () => null)
+    }
     const chosen = e.agentId === undefined ? await read($, route) : null
     if (chosen === null) {
       return yield* next(e)
