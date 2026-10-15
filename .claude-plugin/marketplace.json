@@ -1,12 +1,12 @@
 {
-  "name": "laya-router",
+  "name": "decision-model-router",
   "description": "Route Claude Code sessions to Haiku, Sonnet, Opus or Fable with pluggable decision providers and measure routing costs.",
   "owner": {
     "name": "Marc Reichel"
   },
   "plugins": [
     {
-      "name": "laya-router",
+      "name": "decision-model-router",
       "source": "./"
     }
   ]

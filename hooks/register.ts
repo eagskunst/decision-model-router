@@ -12,11 +12,11 @@ import type { Tiers } from './tiers'
 
 export type Api = Parameters<Hook<'prompt.submit'>>[0] | Parameters<Hook<'turn.step'>>[0]
 
-const isRouted = atom({ plugin: 'laya-router', key: 'isRouted' } as const, false)
-const pending = atom({ plugin: 'laya-router', key: 'pending' } as const, null)
-const route = atom({ plugin: 'laya-router', key: 'route' } as const, null)
-const record = atom({ plugin: 'laya-router', key: 'record' } as const, null)
-const recordPersisted = atom({ plugin: 'laya-router', key: 'recordPersisted' } as const, false)
+const isRouted = atom({ plugin: 'decision-model-router', key: 'isRouted' } as const, false)
+const pending = atom({ plugin: 'decision-model-router', key: 'pending' } as const, null)
+const route = atom({ plugin: 'decision-model-router', key: 'route' } as const, null)
+const record = atom({ plugin: 'decision-model-router', key: 'record' } as const, null)
+const recordPersisted = atom({ plugin: 'decision-model-router', key: 'recordPersisted' } as const, false)
 
 const SKILL_TEXT_CAP = 2000
 

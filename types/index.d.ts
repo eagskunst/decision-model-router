@@ -31,7 +31,7 @@ export type SessionRecord = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'laya-router': {
+    'decision-model-router': {
       isRouted: boolean
       pending: string | null
       route: Route | null

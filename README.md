@@ -1,8 +1,8 @@
-![laya-router](.github/header.svg)
+![decision-model-router](.github/header.svg)
 
 Fork of [marcreichel/laya-router](https://github.com/marcreichel/laya-router).
 
-`laya-router` picks a model for each Claude Code session from its first prompt. Decision providers are pluggable: hosted [SubQ](https://subq.ai) is the default, and self-hosted laya-serve, Claude, and OpenAI-compatible endpoints are also supported.
+`decision-model-router` picks a model for each Claude Code session from its first prompt. Decision providers are pluggable: hosted [SubQ](https://subq.ai) is the default, and self-hosted laya-serve, Claude, and OpenAI-compatible endpoints are also supported.
 
 | Request type | Model | Default effort |
 |---|---|---|
@@ -16,8 +16,8 @@ Fork of [marcreichel/laya-router](https://github.com/marcreichel/laya-router).
 In Claude Code:
 
 ```text
-/plugin marketplace add eagskunst/laya-router
-/plugin install laya-router@laya-router
+/plugin marketplace add eagskunst/decision-model-router
+/plugin install decision-model-router@decision-model-router
 ```
 
 Open `/config`, choose a **Decision provider**, and paste its key into **Decider API key**:
