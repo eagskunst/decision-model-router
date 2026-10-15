@@ -1,12 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { Hook, Register } from 'claude-code'
 
-import type { Effort, Route, SessionRecord } from '../types'
+import type { Effort, Route, RouteSnapshot, SessionRecord } from '../types'
 import { createDecider, InvalidDecisionError, TIMEOUT } from './deciders'
 import type { DeciderConfig, Provider } from './deciders'
 import { parsePriceOverrides, requestCost } from './prices'
 import type { Usage } from './prices'
-import { persistRecord, statsText } from './stats'
+import { persistRecord, sessionKey, statsText } from './stats'
 import { MIN_CONFIDENCE, TIERS } from './tiers'
 import type { Tiers } from './tiers'
 
@@ -30,6 +30,7 @@ type Config = {
 }
 
 type UsageResult = Usage & { model?: string }
+type RouteCarry = RouteSnapshot & { record: SessionRecord | null; at: number }
 
 function recordFor(
   id: string,
@@ -89,6 +90,22 @@ async function makeRecord(
   await update($, record, () => current)
   await update($, recordPersisted, () => false)
   return current
+}
+
+async function saveSnapshot($: Api, sessionId: string): Promise<RouteSnapshot | null> {
+  try {
+    if (!(await read($, isRouted))) return null
+    const currentRecord = await read($, record)
+    const snapshot: RouteSnapshot = {
+      route: await read($, route),
+      recordKey: currentRecord ? sessionKey(currentRecord, sessionId) : null,
+      savedAt: await $.clock.now(),
+    }
+    await $.store.set(`route:${sessionId}`, snapshot)
+    return snapshot
+  } catch {
+    return null
+  }
 }
 
 function deciderCost(cfg: Config, decision: { inputTokens?: number; outputTokens?: number }): number | null {
@@ -275,6 +292,7 @@ export const register: Register = (on, options) => {
       await update($, route, () => null)
       const current = await read($, record)
       if (current) await update($, record, () => ({ ...current, overridden: true }))
+      await saveSnapshot($, await $.session.id())
       $.ui.status('router: /model changed, routing off')
     }
     const currentRoute = e.agentId === undefined ? await read($, route) : null
@@ -297,6 +315,80 @@ export const register: Register = (on, options) => {
         await persistRecord($, updated, firstPersist)
         await update($, recordPersisted, () => true)
       }
+      await saveSnapshot($, await $.session.id())
+    }
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    try {
+      if (await read($, isRouted)) {
+        const sessionId = await $.session.id()
+        const snapshot = await saveSnapshot($, sessionId)
+        if (snapshot) {
+          await $.store.set('carry', {
+            ...snapshot,
+            record: await read($, record),
+            at: await $.clock.now(),
+          } satisfies RouteCarry)
+        }
+      }
+    } catch {}
+    return next(e)
+  })
+
+  on('classic.SessionStart', { source: ['resume', 'fork'] }, async ($, e, next) => {
+    try {
+      await update($, isRouted, () => true)
+      await update($, route, () => null)
+      await update($, record, () => null)
+      await update($, recordPersisted, () => false)
+
+      if (e.source === 'resume') {
+        // Assumes $.session.id() matches SessionStart's session_id; a mismatch safely falls back to /model.
+        const snapshot = (await $.store.get(`route:${e.session_id}`)) as RouteSnapshot | undefined
+        if (snapshot) {
+          await update($, route, () => snapshot.route)
+          if (snapshot.recordKey) {
+            const savedRecord = (await $.store.get(snapshot.recordKey)) as SessionRecord | undefined
+            await update($, record, () => savedRecord ?? null)
+            await update($, recordPersisted, () => true)
+          }
+        } else {
+          $.ui.status('router: resumed without a saved route, using /model')
+        }
+      } else {
+        const carry = (await $.store.get('carry')) as RouteCarry | undefined
+        const now = await $.clock.now()
+        if (carry && now - carry.at <= 60_000) {
+          await update($, route, () => carry.route)
+          if (carry.record) {
+            const branchedRecord: SessionRecord = {
+              ...carry.record,
+              id: await $.session.id(),
+              startedAt: now,
+              decider: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+              tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, requests: 0 },
+              actualUsd: 0,
+              baselineUsd: 0,
+              turns: 0,
+              aborted: 0,
+              overridden: false,
+              flagged: false,
+            }
+            await update($, record, () => branchedRecord)
+            await update($, recordPersisted, () => false)
+          }
+        }
+        await $.store.delete('carry')
+      }
+    } catch {
+      try {
+        await update($, isRouted, () => true)
+        await update($, route, () => null)
+        await update($, record, () => null)
+        await update($, recordPersisted, () => false)
+      } catch {}
     }
     return next(e)
   })

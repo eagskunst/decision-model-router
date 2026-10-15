@@ -36,6 +36,8 @@ Fable is opt-in with `enableFable`. Set per-tier efforts with `haikuEffort`, `so
 
 Routing happens only on the first prompt. Prompts under three words remain on `/model`. Skill invocations use expanded skill text when the hook is available, otherwise their typed command. Subagents are not routed or measured. A manual `/model` change disables routing for the rest of the session.
 
+- The pick survives `/resume` and `/branch` (saved per session in the plugin store); `/clear` starts fresh and routes the next prompt again. A resumed session with no saved pick stays on `/model`.
+
 ## Measuring gains and losses
 
 Each completed session stores a compact record: provider, route/group, model, confidence, turn and abort counts, override/feedback flags, token totals, and estimated costs. **Prompt text is never stored.** Records are retained in the plugin store, capped at 500 sessions.

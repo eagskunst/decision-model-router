@@ -1,5 +1,5 @@
 import type { Api } from './register'
-import type { SessionRecord } from '../types'
+import type { RouteSnapshot, SessionRecord } from '../types'
 
 export function sessionKey(record: SessionRecord, id: string) {
   return `session:${String(record.startedAt).padStart(13, '0')}:${id}`
@@ -13,6 +13,11 @@ export async function persistRecord($: Api, record: SessionRecord, prune: boolea
   const keys = await $.store.keys()
   const sessions = keys.filter((value: string) => value.startsWith('session:')).sort().reverse()
   for (const expired of sessions.slice(500)) await $.store.delete(expired)
+  const snapshotCutoff = (await $.clock.now()) - 30 * 86_400_000
+  for (const key of keys.filter((value: string) => value.startsWith('route:'))) {
+    const snapshot = (await $.store.get(key)) as RouteSnapshot | undefined
+    if (snapshot && snapshot.savedAt < snapshotCutoff) await $.store.delete(key)
+  }
 }
 
 async function allRecords($: Api, days?: number): Promise<SessionRecord[]> {

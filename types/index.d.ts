@@ -9,6 +9,8 @@ export type Route = {
   sessionModel: string
 }
 
+export type RouteSnapshot = { route: Route | null; recordKey: string | null; savedAt: number }
+
 export type SessionRecord = {
   id: string
   startedAt: number
