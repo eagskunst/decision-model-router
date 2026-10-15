@@ -26,6 +26,23 @@ type Usage = { input_tokens?: number; output_tokens?: number }
 
 export class InvalidDecisionError extends Error {}
 
+function messageFrom(value: unknown): string | undefined {
+  return typeof value === 'object' && value !== null && 'message' in value && typeof value.message === 'string'
+    ? value.message
+    : undefined
+}
+
+function httpError(status: number, text: string): Error {
+  let reason: string | undefined
+  try {
+    const body = JSON.parse(text) as { detail?: unknown; error?: unknown }
+    reason = messageFrom(body.detail)
+    if (reason === undefined && typeof body.detail === 'string') reason = body.detail
+    if (reason === undefined) reason = messageFrom(body.error)
+  } catch {}
+  return new Error(`HTTP ${status}${reason === undefined ? '' : `: ${reason.slice(0, 120)}`}`)
+}
+
 export function systemoneConfidence(answer: SystemoneAnswer): number {
   if (answer.answer_confidence !== undefined) return Number(answer.answer_confidence)
   const probabilities = Object.values(answer.probabilities ?? {}).map(Number).filter(Number.isFinite)
@@ -67,7 +84,7 @@ export function createDecider(cfg: DeciderConfig, transport: DeciderTransport): 
           questions: { route: routeQuestion(tiers) },
         }),
       })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      if (!response.ok) throw httpError(response.status, response.text)
       const body = JSON.parse(response.text) as { answers?: { route?: SystemoneAnswer }; usage?: Usage }
       const answer = body.answers?.route ?? {}
       const label = typeof answer.choice === 'string' ? answer.choice : ''
@@ -112,7 +129,7 @@ export function createDecider(cfg: DeciderConfig, transport: DeciderTransport): 
         max_tokens: 50,
       }),
     })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    if (!response.ok) throw httpError(response.status, response.text)
     const body = JSON.parse(response.text) as {
       choices?: { message?: { content?: unknown } }[]
       usage?: { prompt_tokens?: number; completion_tokens?: number }

@@ -170,7 +170,10 @@ async function classify($: Api, text: string, signal: AbortSignal, cfg: Config) 
       return
     }
     await makeRecord($, cfg, 'unrouted', 'offline')
-    $.ui.status('router: offline, using /model')
+    const message = error instanceof Error ? error.message : String(error)
+    let detail = message === 'timeout' ? 'timeout' : error instanceof SyntaxError ? 'bad response' : message
+    if (cfg.decider.apiKey) detail = detail.split(cfg.decider.apiKey).join('***')
+    $.ui.status(`router: offline (${detail.slice(0, 120)}), using /model`)
   }
 }
 

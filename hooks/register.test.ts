@@ -15,6 +15,7 @@ type Setup = {
   outputTokens?: number
   content?: string
   modelText?: string
+  rawResponse?: string
   response?: unknown
 }
 
@@ -53,7 +54,7 @@ function world(on: On, setup: Setup = {}) {
         status: setup.status ?? 200,
         ok: (setup.status ?? 200) < 300,
         headers: {},
-        text: JSON.stringify(body),
+        text: setup.rawResponse ?? JSON.stringify(body),
       },
     }
   })
@@ -238,7 +239,40 @@ test('keeps /model when the provider is down', { options: { provider: 'laya' } }
   await submit($, 'Translate hello into French.')
   await step($)
   expect(w.sent).toEqual([{ model: 'claude-opus-5-5', effort: 'high' }])
-  expect(w.statuses).toEqual(['router: offline, using /model'])
+  expect(w.statuses).toEqual(['router: offline (HTTP 503), using /model'])
+})
+
+test('shows the SubQ HTTP authentication error detail', { options: { apiKey: 'subq-secret' } }, async ($, on) => {
+  const w = world(on, {
+    status: 401,
+    response: { detail: { error_type: 'authentication_error', message: 'Invalid API key' } },
+  })
+  await submit($, 'Translate hello into French.')
+  expect(w.statuses[0]).toBe('router: offline (HTTP 401: Invalid API key), using /model')
+})
+
+test('shows the OpenAI-compatible HTTP error detail', {
+  options: { provider: 'openai-compatible', apiKey: 'api-secret', deciderModel: 'my-router' },
+}, async ($, on) => {
+  const w = world(on, { status: 429, response: { error: { message: 'Rate limited' } } })
+  await submit($, 'Translate hello into French.')
+  expect(w.statuses[0]).toBe('router: offline (HTTP 429: Rate limited), using /model')
+})
+
+test('redacts the configured key from offline details', { options: { apiKey: 'subq-secret' } }, async ($, on) => {
+  const w = world(on, {
+    status: 401,
+    response: { detail: { message: 'Denied: subq-secret' } },
+  })
+  await submit($, 'Translate hello into French.')
+  expect(w.statuses[0]).toContain('Denied: ***')
+  expect(w.statuses[0]).not.toContain('subq-secret')
+})
+
+test('shows bad response for malformed successful HTTP bodies', { options: { provider: 'laya' } }, async ($, on) => {
+  const w = world(on, { rawResponse: '{' })
+  await submit($, 'Translate hello into French.')
+  expect(w.statuses[0]).toBe('router: offline (bad response), using /model')
 })
 
 test('times out an unresponsive provider', { options: { provider: 'laya' } }, async ($, on) => {
@@ -246,7 +280,7 @@ test('times out an unresponsive provider', { options: { provider: 'laya' } }, as
   await submit($, 'Translate hello into French.')
   await step($)
   expect(w.sent).toEqual([{ model: 'claude-opus-5-5', effort: 'high' }])
-  expect(w.statuses).toEqual(['router: offline, using /model'])
+  expect(w.statuses).toEqual(['router: offline (timeout), using /model'])
 })
 
 test('a manual /model switch turns routing off', { options: { provider: 'laya' } }, async ($, on) => {
