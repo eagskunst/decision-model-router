@@ -1,5 +1,7 @@
 import type { Effort } from '../types'
 
+export type Tiers = Record<string, { model: string; effort: Effort; label: string; describe: string }>
+
 // Laya knows tasks, not models: ask how demanding the prompt is. Neutral labels and keyword
 // descriptions, tuned against laya-serve via `node eval/route.ts`; model names as labels skew it.
 export const TIERS: Record<string, { model: string; effort: Effort; label: string; describe: string }> = {

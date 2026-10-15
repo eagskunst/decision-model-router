@@ -1,24 +1,59 @@
 {
-  "name": "laya-router",
-  "version": "0.2.2",
-  "description": "Auto-route each Claude Code session to Haiku, Sonnet, Opus or Fable from its first prompt. Classified locally, zero tokens.",
+  "name": "decision-model-router",
+  "version": "0.3.0",
+  "description": "Route Claude Code sessions to Haiku, Sonnet, Opus or Fable with pluggable decision providers and measure routing costs.",
   "author": { "name": "Marc Reichel" },
-  "homepage": "https://github.com/marcreichel/laya-router",
-  "repository": "https://github.com/marcreichel/laya-router",
+  "homepage": "https://github.com/eagskunst/decision-model-router",
+  "repository": "https://github.com/eagskunst/decision-model-router",
   "license": "MIT",
   "types": "./types/index.d.ts",
   "userConfig": {
-    "layaUrl": {
+    "provider": {
       "type": "string",
-      "title": "laya-serve URL",
-      "description": "Where laya-serve answers POST /v1/systemone.",
-      "default": "http://localhost:8000"
+      "title": "Decision provider",
+      "description": "Choose SubQ hosted routing, self-hosted laya-serve, Claude, or an OpenAI-compatible API.",
+      "options": ["subq", "laya", "claude", "openai-compatible"],
+      "default": "subq"
     },
-    "layaApiKey": {
+    "apiKey": {
       "type": "string",
-      "title": "laya-serve API key",
-      "description": "Sent as a Bearer token; leave empty when laya-serve runs without LAYA_API_KEY.",
+      "title": "Decider API key",
+      "description": "API key for the selected provider. Required by SubQ and OpenAI-compatible providers.",
       "sensitive": true,
+      "default": ""
+    },
+    "deciderModel": {
+      "type": "string",
+      "title": "Decider model",
+      "description": "Override the provider's default decision model. Required for OpenAI-compatible providers.",
+      "default": ""
+    },
+    "baseUrl": {
+      "type": "string",
+      "title": "Provider base URL",
+      "description": "Override the provider's default API base URL.",
+      "default": ""
+    },
+    "minConfidence": {
+      "type": "number",
+      "title": "Minimum confidence",
+      "description": "Minimum confidence required to route; 0 uses the provider default.",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    "holdoutPercent": {
+      "type": "number",
+      "title": "Holdout percentage",
+      "description": "Share of sessions left on /model for comparison.",
+      "min": 0,
+      "max": 100,
+      "default": 0
+    },
+    "prices": {
+      "type": "string",
+      "title": "Price overrides",
+      "description": "JSON override of per-MTok prices keyed by model-ID prefix, e.g. {\"claude-opus-5-5\":{\"input\":4,\"output\":20,\"cacheWrite\":5,\"cacheRead\":0.2}}.",
       "default": ""
     },
     "enableFable": {

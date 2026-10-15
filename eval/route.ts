@@ -1,6 +1,7 @@
 // Scores the tier descriptions against a live laya-serve:  node eval/route.ts
 // Runs with Fable off (3 tiers, fable prompts expect opus) and on (4 tiers).
 import { MIN_CONFIDENCE, TIERS, routeQuestion } from '../hooks/tiers.ts'
+import { systemoneConfidence } from '../hooks/deciders.ts'
 
 // null = too vague to route, so "unsure" is the right answer. Prompts under 3 words never reach
 // Laya (register.ts skips them), so they aren't here.
@@ -51,20 +52,21 @@ const PROMPTS: [string, string | null][] = [
   ['Can you take a look?', null],
 ]
 
-const url = `${(process.env.LAYA_URL ?? 'http://localhost:8000').replace(/\/+$/, '')}/v1/systemone`
+const baseUrl = (process.env.ROUTER_URL ?? process.env.LAYA_URL ?? 'http://localhost:8000').replace(/\/+$/, '')
+const model = process.env.ROUTER_MODEL ?? 'jev-latest'
 
 async function classify(prompt: string, tiers: typeof TIERS) {
-  const response = await fetch(url, {
+  const response = await fetch(`${baseUrl}/v1/systemone`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ state: prompt, model: 'jev-latest', questions: { route: routeQuestion(tiers) } }),
+    headers: { 'content-type': 'application/json', ...(process.env.ROUTER_API_KEY ? { authorization: `Bearer ${process.env.ROUTER_API_KEY}` } : {}) },
+    body: JSON.stringify({ state: prompt, model, questions: { route: routeQuestion(tiers) } }),
   })
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${await response.text()}`)
   }
   const answer = (await response.json()).answers.route
   const tier = Object.keys(tiers).find(tier => tiers[tier]?.label === answer.choice)
-  return { choice: String(tier), confidence: Number(answer.answer_confidence) }
+  return { choice: String(tier), confidence: systemoneConfidence(answer) }
 }
 
 const pct = (n: number, of: number) => (of ? `${Math.round((100 * n) / of)}%` : '-').padStart(4)
