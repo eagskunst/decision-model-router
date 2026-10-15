@@ -1,5 +1,7 @@
 ![laya-router](.github/header.svg)
 
+Fork of [marcreichel/laya-router](https://github.com/marcreichel/laya-router).
+
 `laya-router` picks a model for each Claude Code session from its first prompt. Decision providers are pluggable: hosted [SubQ](https://subq.ai) is the default, and self-hosted laya-serve, Claude, and OpenAI-compatible endpoints are also supported.
 
 | Request type | Model | Default effort |
@@ -14,7 +16,7 @@
 In Claude Code:
 
 ```text
-/plugin marketplace add marcreichel/laya-router
+/plugin marketplace add eagskunst/laya-router
 /plugin install laya-router@laya-router
 ```
 
@@ -39,9 +41,11 @@ Routing happens only on the first prompt. Prompts under three words remain on `/
 Each completed session stores a compact record: provider, route/group, model, confidence, turn and abort counts, override/feedback flags, token totals, and estimated costs. **Prompt text is never stored.** Records are retained in the plugin store, capped at 500 sessions.
 
 - `holdoutPercent` randomly assigns confident sessions to a holdout group that stays on `/model`, while recording the tier the router would have selected.
-- `/router-stats [days]` summarizes routed, holdout, and unrouted sessions, estimated actual and baseline costs, savings, switch overhead, and tier distribution.
+- `/router-stats [days]` summarizes routed, holdout, and unrouted sessions, estimated actual and baseline costs, savings, and tier distribution.
 - `/router-bad` flags the current session's route for later analysis.
 - `prices` accepts JSON per-MTok price overrides keyed by model-ID prefix, for example `{"claude-opus-5-5":{"input":4,"output":20,"cacheWrite":5,"cacheRead":0.2}}`.
+
+Because routing happens on the first prompt, no prompt cache is lost; the costs are the decider call and possible quality regressions (overrides, aborts, flags, more turns than holdout).
 
 Costs use built-in model prices unless overridden. Unknown model prices are reported as unpriced. Baseline is an estimate: it reprices the same observed tokens at the session's original `/model`; it does not model how a different model might have generated a different conversation. SubQ decision input is estimated at $0.05/MTok; laya decisions are free, while OpenAI-compatible decision costs are not estimated. Claude decider usage is priced with the configured model prices.
 

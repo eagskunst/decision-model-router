@@ -23,7 +23,6 @@ export type SessionRecord = {
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; requests: number }
   actualUsd: number | null
   baselineUsd: number | null
-  switchOverheadUsd: number | null
   turns: number
   aborted: number
   overridden: boolean

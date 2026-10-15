@@ -131,7 +131,6 @@ function stored(w: ReturnType<typeof world>) {
     reason?: string
     actualUsd: number | null
     baselineUsd: number | null
-    switchOverheadUsd: number | null
     tokens: { requests: number; input: number }
     overridden: boolean
     flagged: boolean
@@ -277,6 +276,16 @@ test('defaults to SubQ systemone and uses top probability confidence', { options
   expect(w.sent[0]?.model).toBe('claude-haiku-5-5')
 })
 
+test('unknown providers use the SubQ defaults', { options: { provider: 'unknown', apiKey: 'subq-secret' } }, async ($, on) => {
+  const w = world(on, { choice: 'trivial', confidence: 0.4 })
+  await submit($, 'Translate hello into French.')
+  await step($)
+  expect(w.calls[0]?.url).toBe('https://api.subq.ai/v1/systemone')
+  expect(JSON.parse(w.calls[0]?.init?.body ?? '').model).toBe('subq-snap-preview')
+  expect(w.statuses[0]).toBe('router: unsure (0.40), using /model')
+  expect(w.sent[0]?.model).toBe('claude-opus-5-5')
+})
+
 test('does not call SubQ without its API key', async ($, on) => {
   const w = world(on)
   await submit($, 'Translate hello into French.')
@@ -352,14 +361,14 @@ test('holds out confident decisions and records the candidate tier', { options: 
   expect(stored(w)).toMatchObject({ group: 'holdout', tier: 'haiku' })
 })
 
-test('records costs, cache switch overhead, and no prompt text', { options: { provider: 'laya' } }, async ($, on) => {
+test('records costs and no prompt text', { options: { provider: 'laya' } }, async ($, on) => {
   const w = world(on)
   w.setUsage({ input_tokens: 1000, output_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 2000 })
   await submit($, 'Translate hello into French.')
   await step($)
   await complete($)
   const serialized = JSON.stringify(stored(w))
-  expect(stored(w)).toMatchObject({ actualUsd: 0.0006, baselineUsd: 0.024, switchOverheadUsd: 0.00023 })
+  expect(stored(w)).toMatchObject({ actualUsd: 0.0006, baselineUsd: 0.024 })
   expect(serialized.includes('Translate hello into French.')).toBe(false)
 })
 

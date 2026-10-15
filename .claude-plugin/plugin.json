@@ -3,8 +3,8 @@
   "version": "0.3.0",
   "description": "Route Claude Code sessions to Haiku, Sonnet, Opus or Fable with pluggable decision providers and measure routing costs.",
   "author": { "name": "Marc Reichel" },
-  "homepage": "https://github.com/marcreichel/laya-router",
-  "repository": "https://github.com/marcreichel/laya-router",
+  "homepage": "https://github.com/eagskunst/laya-router",
+  "repository": "https://github.com/eagskunst/laya-router",
   "license": "MIT",
   "types": "./types/index.d.ts",
   "userConfig": {

@@ -4,7 +4,7 @@ import type { Hook, Register } from 'claude-code'
 import type { Effort, Route, SessionRecord } from '../types'
 import { createDecider, InvalidDecisionError, TIMEOUT } from './deciders'
 import type { DeciderConfig, Provider } from './deciders'
-import { modelPrice, parsePriceOverrides, requestCost } from './prices'
+import { parsePriceOverrides, requestCost } from './prices'
 import type { Usage } from './prices'
 import { persistRecord, statsText } from './stats'
 import { MIN_CONFIDENCE, TIERS } from './tiers'
@@ -57,7 +57,6 @@ function recordFor(
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, requests: 0 },
     actualUsd: 0,
     baselineUsd: 0,
-    switchOverheadUsd: null,
     turns: 0,
     aborted: 0,
     overridden: false,
@@ -120,6 +119,8 @@ async function classify($: Api, text: string, signal: AbortSignal, cfg: Config) 
       complete: (input) => $.model.complete(input),
     })
     const request = boundDecider(text, cfg.tiers)
+    // Decider requests may outlive the hook's timeout. Race one so a stalled provider cannot hold the prompt for the
+    // host's 30 s; a request that loses keeps running in the background until the host gives up.
     const timer = new AbortController()
     const timeout = $.clock.sleep(TIMEOUT, { signal: AbortSignal.any([signal, timer.signal]) }).then(() => {
       throw new Error('timeout')
@@ -160,14 +161,6 @@ function accumulateUsage(current: SessionRecord, usage: UsageResult, sentModel: 
   const actual = requestCost(usage, usage.model ?? sentModel, cfg.prices)
   const baseline = requestCost(usage, current.sessionModel, cfg.prices)
   const add = (total: number | null, amount: number | null) => (total === null || amount === null ? null : total + amount)
-  let overhead = current.switchOverheadUsd
-  if (current.group === 'routed' && current.tokens.requests === 0 && current.routedModel === sentModel) {
-    const price = modelPrice(sentModel, cfg.prices, usage)
-    overhead =
-      price === null
-        ? null
-        : ((usage.cache_creation_input_tokens ?? 0) * (price.cacheWrite - price.cacheRead)) / 1_000_000
-  }
   return {
     ...current,
     tokens: {
@@ -179,7 +172,6 @@ function accumulateUsage(current: SessionRecord, usage: UsageResult, sentModel: 
     },
     actualUsd: add(current.actualUsd, actual),
     baselineUsd: add(current.baselineUsd, baseline),
-    switchOverheadUsd: overhead,
   }
 }
 
@@ -199,14 +191,16 @@ export const register: Register = (on, options) => {
     model: String(options.deciderModel ?? '') || selected.model,
     apiKey,
   }
+  // Fable isn't in every subscription, so it's opt-in; without it the decider picks from the other three.
   const enableFable = String(options.enableFable ?? false) === 'true'
+  // Claude Code validates each <tier>Effort against its options before load, falling back to the default.
   const tiers: Tiers = Object.fromEntries(
     Object.entries(TIERS)
       .filter(([tier]) => tier !== 'fable' || enableFable)
       .map(([tier, item]) => [tier, { ...item, effort: (options[`${tier}Effort`] as Effort | undefined) ?? item.effort }]),
   )
   const defaultConfidence =
-    provider === 'subq' || provider === 'laya'
+    decider.provider === 'subq' || decider.provider === 'laya'
       ? enableFable
         ? MIN_CONFIDENCE.withFable
         : MIN_CONFIDENCE.withoutFable
@@ -224,7 +218,9 @@ export const register: Register = (on, options) => {
   }
 
   on('prompt.submit', async ($, e, next) => {
+    // ponytail: first prompt only, since every switch re-reads the whole conversation uncached.
     if (await read($, isRouted)) return next(e)
+    // A skill call types as "/name args"; the skill's text only exists at skill.prompt, so classify it there.
     const name = /^\/(\S+)/.exec(e.text.trim())?.[1]
     if (
       name !== undefined &&
@@ -233,6 +229,8 @@ export const register: Register = (on, options) => {
       await update($, pending, () => e.text.trim())
       return next(e)
     }
+    // The decider reads "hi" as a confident trivial task, which would lock the session to Haiku. Routing a later prompt
+    // instead would switch models mid-conversation and drop the prompt cache, so stay on /model.
     if (e.text.trim().split(/\s+/).length < 3) {
       await update($, isRouted, () => true)
       await makeRecord($, cfg, 'unrouted', 'short')
@@ -241,8 +239,10 @@ export const register: Register = (on, options) => {
     }
     await classify($, e.text, next.signal, cfg)
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => next(e)) // routing is best effort: never hold a prompt back
 
+  // ponytail: skill text is capped, since a SKILL.md is long and the decider only needs its gist.
+  // Some accounts (e.g. team/organization) don't offer skill.prompt; turn.step then routes on the typed command.
   try {
     on('skill.prompt', async ($, e, next) => {
       const typed = await read($, pending)
@@ -255,12 +255,14 @@ export const register: Register = (on, options) => {
   } catch {}
 
   on('turn.step', async function* ($, e, next) {
+    // No skill.prompt fired for the pending command (unavailable here), so route on what was typed.
     const typed = e.agentId === undefined ? await read($, pending) : null
     if (typed !== null) {
       await update($, pending, () => null)
       if (typed.split(/\s+/).length >= 3) {
         await classify($, typed, next.signal, cfg)
       } else {
+        // Same rule as a plain prompt: a bare "/commit" says too little, so stay on /model.
         await update($, isRouted, () => true)
         await makeRecord($, cfg, 'unrouted', 'short')
         $.ui.status('router: unsure, using /model')
@@ -268,6 +270,7 @@ export const register: Register = (on, options) => {
     }
 
     const chosen = e.agentId === undefined ? await read($, route) : null
+    // A manual /model after routing wins for the rest of the session.
     if (chosen !== null && (await $.session.model()) !== chosen.sessionModel) {
       await update($, route, () => null)
       const current = await read($, record)

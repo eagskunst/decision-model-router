@@ -68,7 +68,7 @@ export async function statsText($: Api, daysArg: string): Promise<string> {
   const tierLine = [...tiers].map(([tier, count]) => `${tier} ${count}`).join(', ') || '—'
   lines.push(
     '',
-    `**Routed totals:** actual ${money(actualTotal)}; baseline ${money(baselineTotal)}; saved ${money(saved)} (${baselineTotal ? `${((saved / baselineTotal) * 100).toFixed(1)}%` : '—'}); switch overhead ${money(routed.reduce<number | null>((sum, record) => sum === null || record.switchOverheadUsd === null ? null : sum + record.switchOverheadUsd, 0))}; decider ${deciderTotal}.`,
+    `**Routed totals:** actual ${money(actualTotal)}; baseline ${money(baselineTotal)}; saved ${money(saved)} (${baselineTotal ? `${((saved / baselineTotal) * 100).toFixed(1)}%` : '—'}); decider ${deciderTotal}.`,
     `**Tiers:** ${tierLine}.`,
   )
 
