@@ -1,6 +1,6 @@
 {
   "name": "laya-router",
-  "description": "Auto-route each Claude Code session to Haiku, Sonnet, Opus or Fable from its first prompt. Classified locally, zero tokens.",
+  "description": "Route Claude Code sessions to Haiku, Sonnet, Opus or Fable with pluggable decision providers and measure routing costs.",
   "owner": {
     "name": "Marc Reichel"
   },

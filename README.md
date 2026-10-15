@@ -1,43 +1,49 @@
 ![laya-router](.github/header.svg)
 
-A Claude Code mod that picks the model for a session from its first prompt. [Laya](https://github.com/NandhaKishorM/laya) classifies the prompt on your own machine through `laya-serve`, so routing costs no tokens.
+`laya-router` picks a model for each Claude Code session from its first prompt. Decision providers are pluggable: hosted [SubQ](https://subq.ai) is the default, and self-hosted laya-serve, Claude, and OpenAI-compatible endpoints are also supported.
 
-| Laya reads the prompt as… | Model | Default effort |
+| Request type | Model | Default effort |
 |---|---|---|
-| trivial: quick question, translation, rename, typo, version bump | `claude-haiku-5-5` | low |
-| routine: new feature, refactor, tests, script, query, email, summary | `claude-sonnet-5-5` | medium |
-| hard: subtle bug, flaky test, memory leak, performance regression, architecture, migration plan, security audit | `claude-opus-5-5` | high |
-| research: new theory, hypothesis, formal proof, mathematical bound | `claude-fable-5-1` (opt-in, `enableFable`; otherwise Opus) | xhigh |
+| Quick question, translation, rename, typo, version bump | `claude-haiku-5-5` | low |
+| Feature, refactor, tests, script, query, email, summary | `claude-sonnet-5-5` | medium |
+| Subtle bug, flaky test, performance issue, architecture, migration, security audit | `claude-opus-5-5` | high |
+| New theory, hypothesis, formal proof, mathematical bound | `claude-fable-5-1` (opt-in; otherwise Opus) | xhigh |
 
-## How it behaves
+## Install and configure
 
-- **First prompt only.** Switching models mid-session drops the prompt cache, so the whole conversation is re-read at full price. The mod routes once and stays on that model. A first prompt under three words, like "hi", says too little to route, so the session stays on `/model`.
-- **Skill calls are read by what they do.** A first prompt like `/implement-issue 12345` is routed once the skill expands, from the typed text plus the first 2000 characters of the skill. Where the `skill.prompt` hook isn't available (e.g. some team or organization accounts), it's routed from the typed text alone. If that text is under three words, like a bare `/commit`, the session stays on `/model`.
-- **Main thread only.** Subagents keep the model their definition names.
-- **Falls back to `/model`.** When Laya's confidence is below 0.475 (0.375 with Fable, since four options spread it thinner), or `laya-serve` is unreachable, requests go out unchanged.
-- **`/model` wins.** Change the model by hand after routing and the mod stops overriding for the rest of the session. `/effort` alone doesn't: the mod can't read the session's effort, so it keeps sending the routed one.
-- **The status line shows what happened**: `laya → opus 0.87`, `laya: unsure (0.39), using /model` (or `laya: unsure, using /model` for a prompt too short to send), `laya: offline, using /model`. `/model` keeps showing the session's own model, because a mod rewrites each request and can't set the session's model.
+In Claude Code:
 
-## Install
-
-Start `laya-serve`, e.g. with this repo's `compose.yaml`:
-
-```bash
-docker compose up -d --wait   # http://localhost:8000
-```
-
-Then, in Claude Code:
-
-```
+```text
 /plugin marketplace add marcreichel/laya-router
 /plugin install laya-router@laya-router
 ```
 
-Install asks for `layaUrl` (default `http://localhost:8000`) and an optional `layaApiKey`, which is sent as a Bearer token.
+Open `/config`, choose a **Decision provider**, and paste its key into **Decider API key**:
 
-Fable isn't included in every subscription, so `enableFable` is off by default. While it's off, Laya chooses between Haiku, Sonnet and Opus only.
+- **SubQ** (default): hosted decision service; requires a SubQ API key.
+- **laya**: self-hosted `laya-serve`, optional key. Start it with this repo's `compose.yaml`:
+  ```bash
+  docker compose up -d --wait
+  ```
+- **claude**: uses Claude Code's `$.model.complete`; no separate key is needed.
+- **openai-compatible**: requires an API key and a `deciderModel`; defaults to OpenRouter's API base URL.
 
-Each model's effort is a picker in `/config` (`haikuEffort`, `sonnetEffort`, `opusEffort`, `fableEffort`), from `low` to `max`. Claude Code lowers a level the model doesn't support.
+`baseUrl` and `deciderModel` override provider defaults. `minConfidence: 0` uses the provider default (0.475 for SubQ/laya, 0.6 for Claude/OpenAI-compatible; SubQ/laya uses 0.375 with Fable enabled). `holdoutPercent` leaves that share of confident decisions on the session's `/model` for comparison.
+
+Fable is opt-in with `enableFable`. Set per-tier efforts with `haikuEffort`, `sonnetEffort`, `opusEffort`, and `fableEffort`; Claude Code lowers an effort level that a model doesn't support.
+
+Routing happens only on the first prompt. Prompts under three words remain on `/model`. Skill invocations use expanded skill text when the hook is available, otherwise their typed command. Subagents are not routed or measured. A manual `/model` change disables routing for the rest of the session.
+
+## Measuring gains and losses
+
+Each completed session stores a compact record: provider, route/group, model, confidence, turn and abort counts, override/feedback flags, token totals, and estimated costs. **Prompt text is never stored.** Records are retained in the plugin store, capped at 500 sessions.
+
+- `holdoutPercent` randomly assigns confident sessions to a holdout group that stays on `/model`, while recording the tier the router would have selected.
+- `/router-stats [days]` summarizes routed, holdout, and unrouted sessions, estimated actual and baseline costs, savings, switch overhead, and tier distribution.
+- `/router-bad` flags the current session's route for later analysis.
+- `prices` accepts JSON per-MTok price overrides keyed by model-ID prefix, for example `{"claude-opus-5-5":{"input":4,"output":20,"cacheWrite":5,"cacheRead":0.2}}`.
+
+Costs use built-in model prices unless overridden. Unknown model prices are reported as unpriced. Baseline is an estimate: it reprices the same observed tokens at the session's original `/model`; it does not model how a different model might have generated a different conversation. SubQ decision input is estimated at $0.05/MTok; laya decisions are free, while OpenAI-compatible decision costs are not estimated. Claude decider usage is priced with the configured model prices.
 
 ## Develop
 
@@ -45,7 +51,7 @@ Each model's effort is a picker in `/config` (`haikuEffort`, `sonnetEffort`, `op
 claude plugin validate .
 claude plugin test .
 claude --plugin-dir .
-node eval/route.ts   # scores the tier descriptions against a running laya-serve (LAYA_URL)
+node eval/route.ts   # score tier descriptions; ROUTER_URL, ROUTER_MODEL and ROUTER_API_KEY configure the endpoint
 ```
 
-The thresholds are the lowest that keep about 90% of routed prompts on the expected tier in `eval/route.ts`. Re-run it after touching `hooks/tiers.ts`.
+The eval script also accepts `LAYA_URL` as a fallback for `ROUTER_URL`. Re-run it after changing `hooks/tiers.ts`.
